@@ -50,16 +50,24 @@ def scrape_product_info(url):
         return {"name": "오류 발생", "category": "ITEM", "img_url": None, "size": "연결 실패"}
 
 # ---------------------------------------------------------
-# 2. 위치 기반 텍스트 교체 함수 (영역 분리)
+# 2. 위치 기반 텍스트 교체 함수 (AttributeError 수정 완료)
 # ---------------------------------------------------------
-def replace_text_by_position(slide, search_text, replace_text, position='all'):
-    prs_height = slide.parent.slide_height
-    mid_point = prs_height * 0.5
+def replace_text_by_position(prs, slide, search_text, replace_text, position='all'):
+    """
+    prs: Presentation 객체 (슬라이드 높이 참조용)
+    slide: 현재 작업 중인 슬라이드
+    """
+    prs_height = prs.slide_height # slide.parent 대신 prs에서 직접 가져옵니다.
+    mid_point = prs_height / 2
+    
     for shape in slide.shapes:
         if not shape.has_text_frame: continue
         if "2026" in shape.text: continue
+        
+        # 위치 필터링 (상단/하단)
         if position == 'top' and shape.top > mid_point: continue
         if position == 'bottom' and shape.top <= mid_point: continue
+        
         for paragraph in shape.text_frame.paragraphs:
             for run in paragraph.runs:
                 if search_text in run.text:
@@ -78,14 +86,17 @@ def replace_image_fit(slide, old_pic_shape, new_img_url):
         with Image.open(img_bytes) as img:
             img_w, img_h = img.size
         img_bytes.seek(0)
+        
         tx, ty, tw, th = old_pic_shape.left, old_pic_shape.top, old_pic_shape.width, old_pic_shape.height
         img_aspect = img_w / img_h
         target_aspect = tw / th
+        
         if img_aspect > target_aspect:
             nw, nh = tw, int(tw / img_aspect)
         else:
             nh, nw = th, int(th * img_aspect)
         ox, oy = tx + (tw - nw) / 2, ty + (th - nh) / 2
+        
         slide.shapes.add_picture(img_bytes, ox, oy, nw, nh)
         sp = old_pic_shape._element
         sp.getparent().remove(sp)
@@ -99,7 +110,8 @@ def duplicate_slide(prs, source_slide):
         new_slide.shapes._spTree.append(new_el)
     return new_slide
 
-def delete_bottom_half(slide, prs_height):
+def delete_bottom_half(prs, slide):
+    prs_height = prs.slide_height
     to_delete = [s for s in slide.shapes if s.top > (prs_height * 0.55)]
     for s in to_delete:
         sp = s._element
@@ -132,8 +144,7 @@ else:
             for idx, hist in enumerate(st.session_state.history):
                 with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
                     all_links_str = "\n".join(hist['links'])
-                    st.caption("아래 박스 우측 상단의 버튼을 눌러 복사하세요:")
-                    # 에러 방지를 위해 st.code 사용 (복사 기능 내장)
+                    st.caption("우측 상단 버튼을 눌러 복사하세요:")
                     st.code(all_links_str, language=None)
                     st.caption(f"가구 개수: {len(hist['links'])}개")
 
@@ -145,7 +156,6 @@ else:
                 product_data = [scrape_product_info(link) for link in links]
                 prs = Presentation(TEMPLATE_FILE)
                 source_slide = prs.slides[1]
-                prs_height = prs.slide_height
                 
                 # 종류별 카운터 초기화
                 counts = {"CHAIR": 0, "TABLE": 0, "SOFA": 0, "ITEM": 0}
@@ -153,36 +163,39 @@ else:
                 for i in range(0, len(product_data), 2):
                     current_slide = duplicate_slide(prs, source_slide)
                     current_page_idx = len(prs.slides)
-                    replace_text_by_position(current_slide, "2", str(current_page_idx))
                     
-                    # 상단 가구
+                    # 페이지 번호 교체
+                    replace_text_by_position(prs, current_slide, "2", str(current_page_idx))
+                    
+                    # --- 상단 가구 ---
                     item1 = product_data[i]
                     counts[item1['category']] += 1
                     cat_num1 = f"{item1['category']} {counts[item1['category']]:02d}"
-                    replace_text_by_position(current_slide, "CHAIR 01", cat_num1, 'top')
-                    replace_text_by_position(current_slide, "FA 루츠 암체어", item1['name'], 'top')
-                    replace_text_by_position(current_slide, "W560 × D520 × H750 × SH440 × AH650", item1['size'], 'top')
-                    replace_text_by_position(current_slide, "01", f"{i + 1:02d}", 'top')
+                    replace_text_by_position(prs, current_slide, "CHAIR 01", cat_num1, 'top')
+                    replace_text_by_position(prs, current_slide, "FA 루츠 암체어", item1['name'], 'top')
+                    replace_text_by_position(prs, current_slide, "W560 × D520 × H750 × SH440 × AH650", item1['size'], 'top')
+                    replace_text_by_position(prs, current_slide, "01", f"{i + 1:02d}", 'top')
 
-                    # 하단 가구
+                    # --- 하단 가구 ---
                     if i + 1 < len(product_data):
                         item2 = product_data[i+1]
                         counts[item2['category']] += 1
                         cat_num2 = f"{item2['category']} {counts[item2['category']]:02d}"
-                        replace_text_by_position(current_slide, "TABLE 01", cat_num2, 'bottom')
+                        replace_text_by_position(prs, current_slide, "TABLE 01", cat_num2, 'bottom')
                         replace_text_by_position(current_slide, "M 카라 테이블", item2['name'], 'bottom')
-                        replace_text_by_position(current_slide, "W2600 × D900 × H730", item2['size'], 'bottom')
-                        replace_text_by_position(current_slide, "02", f"{i + 2:02d}", 'bottom')
+                        replace_text_by_position(prs, current_slide, "W2600 × D900 × H730", item2['size'], 'bottom')
+                        replace_text_by_position(prs, current_slide, "02", f"{i + 2:02d}", 'bottom')
                     else:
-                        delete_bottom_half(current_slide, prs_height)
+                        delete_bottom_half(prs, current_slide)
 
-                    # 이미지 매칭
+                    # 이미지 배치
                     pics = [s for s in current_slide.shapes if s.shape_type == 13]
                     pics.sort(key=lambda x: x.top)
                     if len(pics) >= 1: replace_image_fit(current_slide, pics[0], item1['img_url'])
                     if len(pics) >= 2 and (i + 1 < len(product_data)):
                         replace_image_fit(current_slide, pics[1], item2['img_url'])
 
+                # 원본 템플릿 제거 및 기록 저장
                 del prs.slides._sldIdLst[1]
                 st.session_state.history.insert(0, {"title": proposal_title, "links": links})
                 st.session_state.history = st.session_state.history[:3]
