@@ -25,7 +25,7 @@ def scrape_product_info(url):
         raw_name = title_meta['content'] if title_meta else "상품명 인식 실패"
         clean_name = raw_name.replace(' - (주)엠퍼니처', '').strip()
 
-        # 가구 종류 판별
+        # 가구 종류 판별 (CHAIR, TABLE, SOFA)
         category = "ITEM"
         if any(keyword in clean_name for keyword in ['체어', '의자', 'Chair', 'CHAIR']):
             category = "CHAIR"
@@ -50,11 +50,11 @@ def scrape_product_info(url):
         return {"name": "오류 발생", "category": "ITEM", "img_url": None, "size": "연결 실패"}
 
 # ---------------------------------------------------------
-# 2. 위치 기반 텍스트 교체 함수
+# 2. 위치 기반 텍스트 교체 함수 (영역 분리)
 # ---------------------------------------------------------
 def replace_text_by_position(slide, search_text, replace_text, position='all'):
     prs_height = slide.parent.slide_height
-    mid_point = prs_height / 2
+    mid_point = prs_height * 0.5
     for shape in slide.shapes:
         if not shape.has_text_frame: continue
         if "2026" in shape.text: continue
@@ -65,7 +65,9 @@ def replace_text_by_position(slide, search_text, replace_text, position='all'):
                 if search_text in run.text:
                     run.text = run.text.replace(search_text, str(replace_text))
 
-# [이미지 삽입, 슬라이드 복제, 하단 삭제 함수는 이전과 동일]
+# ---------------------------------------------------------
+# 3. 이미지 삽입 및 슬라이드 제어 함수
+# ---------------------------------------------------------
 def replace_image_fit(slide, old_pic_shape, new_img_url):
     if not new_img_url: return
     try:
@@ -104,7 +106,7 @@ def delete_bottom_half(slide, prs_height):
         sp.getparent().remove(sp)
 
 # ---------------------------------------------------------
-# 3. UI 및 메인 로직
+# 4. Streamlit UI 및 메인 실행부
 # ---------------------------------------------------------
 st.set_page_config(page_title="제안서 생성기", layout="wide")
 st.title("🪑 매직퍼니처 제안서 자동 생성 시스템")
@@ -116,6 +118,7 @@ if not os.path.exists(TEMPLATE_FILE):
     st.error(f"GitHub에 '{TEMPLATE_FILE}' 파일이 업로드되어 있어야 합니다.")
 else:
     col1, col2 = st.columns([2, 1])
+    
     with col1:
         proposal_title = st.text_input("1. 제안서 제목", placeholder="파일명으로 사용됩니다")
         links_input = st.text_area("2. 가구 링크 (줄바꿈 구분)", height=250)
@@ -129,43 +132,22 @@ else:
             for idx, hist in enumerate(st.session_state.history):
                 with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
                     all_links_str = "\n".join(hist['links'])
-                    # 1. 링크 보여주기
-                    st.text_area(f"링크 리스트 {idx+1}", value=all_links_str, height=100, disabled=True, key=f"hist_area_{idx}")
-                    
-                    # 2. 복사 버튼 추가 (클릭 시 클립보드로 복사)
-                    if st.button(f"📋 링크 전체 복사 (기록 {idx+1})", key=f"copy_btn_{idx}")
-    with col2:
-        st.subheader("📜 최근 작업 기록 (최근 3개)")
-        if not st.session_state.history:
-            st.info("기록이 없습니다.")
-        else:
-            for idx, hist in enumerate(st.session_state.history):
-                # 각 기록을 접었다 펴는 UI
-                with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
-                    all_links_str = "\n".join(hist['links'])
-                    
-                    # [수정된 부분] 
-                    # st.write_to_clipboard 대신 st.code를 사용합니다.
-                    # 이 박스 우측 상단의 아이콘을 클릭하면 바로 복사가 됩니다.
-                    st.caption("아래 박스 우측의 버튼을 눌러 복사하세요:")
-                    st.code(all_links_str, language=None) 
-                    
+                    st.caption("아래 박스 우측 상단의 버튼을 눌러 복사하세요:")
+                    # 에러 방지를 위해 st.code 사용 (복사 기능 내장)
+                    st.code(all_links_str, language=None)
                     st.caption(f"가구 개수: {len(hist['links'])}개")
-
-    if st.button("🚀 제안서 생성하기", use_container_width=True):
-        # ... (생성 로직 동일)
-                        st.toast("클립보드에 복사되었습니다!")
 
     if st.button("🚀 제안서 생성하기", use_container_width=True):
         if not proposal_title or not links:
             st.warning("제목과 링크를 입력해 주세요.")
         else:
-            with st.spinner("제안서를 구성 중입니다..."):
+            with st.spinner("제안서를 생성 중입니다..."):
                 product_data = [scrape_product_info(link) for link in links]
                 prs = Presentation(TEMPLATE_FILE)
                 source_slide = prs.slides[1]
                 prs_height = prs.slide_height
                 
+                # 종류별 카운터 초기화
                 counts = {"CHAIR": 0, "TABLE": 0, "SOFA": 0, "ITEM": 0}
                 
                 for i in range(0, len(product_data), 2):
@@ -173,7 +155,7 @@ else:
                     current_page_idx = len(prs.slides)
                     replace_text_by_position(current_slide, "2", str(current_page_idx))
                     
-                    # 상단
+                    # 상단 가구
                     item1 = product_data[i]
                     counts[item1['category']] += 1
                     cat_num1 = f"{item1['category']} {counts[item1['category']]:02d}"
@@ -182,7 +164,7 @@ else:
                     replace_text_by_position(current_slide, "W560 × D520 × H750 × SH440 × AH650", item1['size'], 'top')
                     replace_text_by_position(current_slide, "01", f"{i + 1:02d}", 'top')
 
-                    # 하단
+                    # 하단 가구
                     if i + 1 < len(product_data):
                         item2 = product_data[i+1]
                         counts[item2['category']] += 1
@@ -194,6 +176,7 @@ else:
                     else:
                         delete_bottom_half(current_slide, prs_height)
 
+                    # 이미지 매칭
                     pics = [s for s in current_slide.shapes if s.shape_type == 13]
                     pics.sort(key=lambda x: x.top)
                     if len(pics) >= 1: replace_image_fit(current_slide, pics[0], item1['img_url'])
@@ -207,5 +190,5 @@ else:
                 output = io.BytesIO()
                 prs.save(output)
                 output.seek(0)
-                st.success("🎉 생성 완료!")
-                st.download_button("📥 다운로드", output, f"{proposal_title}.pptx", use_container_width=True)
+                st.success(f"🎉 '{proposal_title}' 생성 완료!")
+                st.download_button("📥 PPT 파일 다운로드", output, f"{proposal_title}.pptx", use_container_width=True)
