@@ -10,7 +10,7 @@ from PIL import Image
 import numpy as np
 import easyocr
 
-# OCR 판독기 캐싱 (속도 향상)
+# OCR 판독기 캐싱 (처음 실행 시 로딩 후 재사용)
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['ko', 'en'])
@@ -46,7 +46,7 @@ def scrape_product_info(url):
                 ocr_result = reader.readtext(img_np, detail=0)
                 all_text = " ".join(ocr_result)
                 
-                # '소재' 키워드 뒤의 텍스트 추출
+                # '소재' 키워드 뒤의 텍스트 추출 (최대 30자)
                 mat_match = re.search(r'(?:소재|재질|Material|Materials)\s*[:]?\s*([^/|▼|■|●]+)', all_text)
                 if mat_match:
                     material = mat_match.group(1).strip()[:30]
@@ -91,11 +91,10 @@ def process_slide_content(prs, slide, page_items, start_idx):
                 find_and_fill_material(slide, shape, item['material'], prs.slide_height)
 
 def find_and_fill_material(slide, size_shape, material_text, slide_height):
-    # 사이즈 도형보다 위쪽에 있는 가까운 도형 탐색
     potential_shapes = []
     for s in slide.shapes:
         if s.has_text_frame:
-            # y축 거리 차이가 슬라이드 높이의 10% 이내인 경우
+            # 사이즈 도형보다 위쪽에 위치한 가까운 도형 탐색
             if 0 < (size_shape.top - s.top) < (slide_height * 0.12):
                 if abs(s.left - size_shape.left) < (size_shape.width * 0.5):
                     potential_shapes.append(s)
@@ -105,7 +104,7 @@ def find_and_fill_material(slide, size_shape, material_text, slide_height):
         target.text_frame.text = material_text
 
 # ---------------------------------------------------------
-# 3. 기타 유틸리티 함수 (이미지, 복제 등)
+# 3. 이미지 및 슬라이드 유틸리티
 # ---------------------------------------------------------
 def replace_image_fit(slide, old_pic_shape, new_img_url):
     if not new_img_url: return
@@ -115,7 +114,6 @@ def replace_image_fit(slide, old_pic_shape, new_img_url):
         with Image.open(img_bytes) as img:
             iw, ih = img.size
         img_bytes.seek(0)
-        
         tx, ty, tw, th = old_pic_shape.left, old_pic_shape.top, old_pic_shape.width, old_pic_shape.height
         iasp, tasp = iw/ih, tw/th
         if iasp > tasp:
@@ -136,7 +134,7 @@ def duplicate_slide(prs, source_slide):
     return new_slide
 
 # ---------------------------------------------------------
-# 4. UI 및 메인 실행
+# 4. UI 및 실행
 # ---------------------------------------------------------
 st.set_page_config(page_title="제안서 생성기", layout="wide")
 st.title("🪑 매직퍼니처 자동 제안서 시스템")
@@ -145,49 +143,6 @@ TEMPLATE_FILE = "magic_furniture_proposal (1).pptx"
 
 col1, col2 = st.columns([2, 1])
 with col1:
-    proposal_title = st.text_input("제안서 제목")
-    links_input = st.text_area("가구 링크 (줄바꿈 구분)", height=250)
-    links = [l.strip() for l in links_input.split('\n') if l.strip()]
-
-if st.button("🚀 제안서 생성 및 다운로드 준비", use_container_width=True):
-    if not proposal_title or not links:
-        st.warning("정보를 입력해주세요.")
-    else:
-        with st.spinner("이미지 분석 및 PPT 생성 중... 잠시만 기다려주세요."):
-            product_data = [scrape_product_info(link) for link in links]
-            prs = Presentation(TEMPLATE_FILE)
-            source_slide = prs.slides[1]
-            
-            for i in range(0, len(product_data), 2):
-                current_slide = duplicate_slide(prs, source_slide)
-                # 페이지 번호 (슬라이드 하단 '2'라고 적힌 부분 교체)
-                for shape in current_slide.shapes:
-                    if shape.has_text_frame and shape.text.strip() == "2":
-                        shape.text_frame.text = str(len(prs.slides))
-
-                page_items = product_data[i:i+2]
-                process_slide_content(prs, current_slide, page_items, i)
-                
-                # 이미지 삽입
-                pics = [s for s in current_slide.shapes if s.shape_type == 13]
-                pics.sort(key=lambda x: x.top)
-                for p_idx, item in enumerate(page_items):
-                    if p_idx < len(pics):
-                        replace_image_fit(current_slide, pics[p_idx], item['img_url'])
-                
-                if len(page_items) < 2: # 홀수개일 때 하단 삭제
-                    to_delete = [s for s in current_slide.shapes if s.top > (prs.slide_height * 0.55)]
-                    for s in to_delete: s._element.getparent().remove(s._element)
-
-            del prs.slides._sldIdLst[1] # 템플릿 슬라이드 삭제
-            
-            output = io.BytesIO()
-            prs.save(output)
-            output.seek(0)
-            
-            # 생성 직후 다운로드 버튼을 크게 표시하여 사용자가 바로 누를 수 있게 함
-            st.success("✅ 제안서가 성공적으로 생성되었습니다!")
-            st.download_button(
-                label="📥 클릭하여 PPT 파일 다운로드",
-                data=output,
-                file_name=f"{proposal_
+    proposal_title = st.text_input("제안서 제목 (예: 가평 펜션 제안서)")
+    links_input = st.text_area("가구 링크 (한 줄에 하나씩)", height=250)
+    links = [l.strip() for l in links_input.split('\n') if
