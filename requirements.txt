@@ -1,0 +1,6 @@
+streamlit>=1.37
+python-pptx>=1.0.2
+requests>=2.31
+beautifulsoup4>=4.12
+Pillow>=10.4
+lxml>=5.2
