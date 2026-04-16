@@ -25,8 +25,8 @@ def scrape_product_info(url):
         raw_name = title_meta['content'] if title_meta else "상품명 인식 실패"
         clean_name = raw_name.replace(' - (주)엠퍼니처', '').strip()
 
-        # 가구 종류 판별 로직
-        category = "ITEM" # 기본값
+        # 가구 종류 판별
+        category = "ITEM"
         if any(keyword in clean_name for keyword in ['체어', '의자', 'Chair', 'CHAIR']):
             category = "CHAIR"
         elif any(keyword in clean_name for keyword in ['테이블', '식탁', '데스크', 'Table', 'TABLE']):
@@ -50,28 +50,22 @@ def scrape_product_info(url):
         return {"name": "오류 발생", "category": "ITEM", "img_url": None, "size": "연결 실패"}
 
 # ---------------------------------------------------------
-# 2. 위치 기반 텍스트 교체 (종류별 카테고리 대응)
+# 2. 위치 기반 텍스트 교체 함수
 # ---------------------------------------------------------
 def replace_text_by_position(slide, search_text, replace_text, position='all'):
     prs_height = slide.parent.slide_height
     mid_point = prs_height / 2
-
     for shape in slide.shapes:
         if not shape.has_text_frame: continue
         if "2026" in shape.text: continue
-        
         if position == 'top' and shape.top > mid_point: continue
         if position == 'bottom' and shape.top <= mid_point: continue
-
         for paragraph in shape.text_frame.paragraphs:
             for run in paragraph.runs:
                 if search_text in run.text:
-                    # 부분 일치가 아닌 전체 일치 혹은 명확한 치환을 위해 처리
                     run.text = run.text.replace(search_text, str(replace_text))
 
-# ---------------------------------------------------------
-# [중간 생략: replace_image_fit, duplicate_slide, delete_bottom_half 이전과 동일]
-# ---------------------------------------------------------
+# [이미지 삽입, 슬라이드 복제, 하단 삭제 함수는 이전과 동일]
 def replace_image_fit(slide, old_pic_shape, new_img_url):
     if not new_img_url: return
     try:
@@ -110,7 +104,7 @@ def delete_bottom_half(slide, prs_height):
         sp.getparent().remove(sp)
 
 # ---------------------------------------------------------
-# 3. UI 및 메인 로직 (카운팅 시스템 추가)
+# 3. UI 및 메인 로직
 # ---------------------------------------------------------
 st.set_page_config(page_title="제안서 생성기", layout="wide")
 st.title("🪑 매직퍼니처 제안서 자동 생성 시스템")
@@ -134,46 +128,46 @@ else:
         else:
             for idx, hist in enumerate(st.session_state.history):
                 with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
-                    st.text_area(f"링크 리스트 {idx+1}", value="\n".join(hist['links']), height=100, disabled=True)
+                    all_links_str = "\n".join(hist['links'])
+                    # 1. 링크 보여주기
+                    st.text_area(f"링크 리스트 {idx+1}", value=all_links_str, height=100, disabled=True, key=f"hist_area_{idx}")
+                    
+                    # 2. 복사 버튼 추가 (클릭 시 클립보드로 복사)
+                    if st.button(f"📋 링크 전체 복사 (기록 {idx+1})", key=f"copy_btn_{idx}"):
+                        st.write_to_clipboard(all_links_str) # Streamlit 최신 기능
+                        st.toast("클립보드에 복사되었습니다!")
 
     if st.button("🚀 제안서 생성하기", use_container_width=True):
         if not proposal_title or not links:
             st.warning("제목과 링크를 입력해 주세요.")
         else:
-            with st.spinner("가구 종류를 분석하고 번호를 매기는 중..."):
+            with st.spinner("제안서를 구성 중입니다..."):
                 product_data = [scrape_product_info(link) for link in links]
                 prs = Presentation(TEMPLATE_FILE)
                 source_slide = prs.slides[1]
                 prs_height = prs.slide_height
                 
-                # 종류별 카운터 초기화
                 counts = {"CHAIR": 0, "TABLE": 0, "SOFA": 0, "ITEM": 0}
                 
                 for i in range(0, len(product_data), 2):
                     current_slide = duplicate_slide(prs, source_slide)
-                    
-                    # 페이지 번호
                     current_page_idx = len(prs.slides)
                     replace_text_by_position(current_slide, "2", str(current_page_idx))
                     
-                    # --- 상단 가구 처리 ---
+                    # 상단
                     item1 = product_data[i]
                     counts[item1['category']] += 1
                     cat_num1 = f"{item1['category']} {counts[item1['category']]:02d}"
-                    
-                    # 템플릿의 'CHAIR 01' 위치를 찾아서 변경
                     replace_text_by_position(current_slide, "CHAIR 01", cat_num1, 'top')
                     replace_text_by_position(current_slide, "FA 루츠 암체어", item1['name'], 'top')
                     replace_text_by_position(current_slide, "W560 × D520 × H750 × SH440 × AH650", item1['size'], 'top')
                     replace_text_by_position(current_slide, "01", f"{i + 1:02d}", 'top')
 
-                    # --- 하단 가구 처리 ---
+                    # 하단
                     if i + 1 < len(product_data):
                         item2 = product_data[i+1]
                         counts[item2['category']] += 1
                         cat_num2 = f"{item2['category']} {counts[item2['category']]:02d}"
-                        
-                        # 템플릿의 'TABLE 01' 위치를 찾아서 변경
                         replace_text_by_position(current_slide, "TABLE 01", cat_num2, 'bottom')
                         replace_text_by_position(current_slide, "M 카라 테이블", item2['name'], 'bottom')
                         replace_text_by_position(current_slide, "W2600 × D900 × H730", item2['size'], 'bottom')
@@ -181,7 +175,6 @@ else:
                     else:
                         delete_bottom_half(current_slide, prs_height)
 
-                    # 이미지 매칭
                     pics = [s for s in current_slide.shapes if s.shape_type == 13]
                     pics.sort(key=lambda x: x.top)
                     if len(pics) >= 1: replace_image_fit(current_slide, pics[0], item1['img_url'])
@@ -195,5 +188,5 @@ else:
                 output = io.BytesIO()
                 prs.save(output)
                 output.seek(0)
-                st.success("🎉 제안서가 성공적으로 생성되었습니다!")
+                st.success("🎉 생성 완료!")
                 st.download_button("📥 다운로드", output, f"{proposal_title}.pptx", use_container_width=True)
