@@ -133,8 +133,27 @@ else:
                     st.text_area(f"링크 리스트 {idx+1}", value=all_links_str, height=100, disabled=True, key=f"hist_area_{idx}")
                     
                     # 2. 복사 버튼 추가 (클릭 시 클립보드로 복사)
-                    if st.button(f"📋 링크 전체 복사 (기록 {idx+1})", key=f"copy_btn_{idx}"):
-                        st.write_to_clipboard(all_links_str) # Streamlit 최신 기능
+                    if st.button(f"📋 링크 전체 복사 (기록 {idx+1})", key=f"copy_btn_{idx}")
+    with col2:
+        st.subheader("📜 최근 작업 기록 (최근 3개)")
+        if not st.session_state.history:
+            st.info("기록이 없습니다.")
+        else:
+            for idx, hist in enumerate(st.session_state.history):
+                # 각 기록을 접었다 펴는 UI
+                with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
+                    all_links_str = "\n".join(hist['links'])
+                    
+                    # [수정된 부분] 
+                    # st.write_to_clipboard 대신 st.code를 사용합니다.
+                    # 이 박스 우측 상단의 아이콘을 클릭하면 바로 복사가 됩니다.
+                    st.caption("아래 박스 우측의 버튼을 눌러 복사하세요:")
+                    st.code(all_links_str, language=None) 
+                    
+                    st.caption(f"가구 개수: {len(hist['links'])}개")
+
+    if st.button("🚀 제안서 생성하기", use_container_width=True):
+        # ... (생성 로직 동일)
                         st.toast("클립보드에 복사되었습니다!")
 
     if st.button("🚀 제안서 생성하기", use_container_width=True):
