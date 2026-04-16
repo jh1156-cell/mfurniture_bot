@@ -3,3 +3,5 @@ python-pptx
 requests
 beautifulsoup4
 Pillow
+easyocr
+opencv-python-headless
