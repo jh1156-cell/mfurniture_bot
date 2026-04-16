@@ -94,20 +94,24 @@ def replace_image_fit(slide, old_pic_shape, new_img_url):
         sp.getparent().remove(sp)
     except Exception as e:
         pass # 이미지 교체 실패 시 기존 틀 유지
-
 # ---------------------------------------------------------
-# 4. 슬라이드 복제 함수
+# 4. 슬라이드 복제 함수 (수정 버전)
 # ---------------------------------------------------------
 def duplicate_slide(prs, source_slide):
-    # 빈 레이아웃으로 새 슬라이드 생성
-    blank_layout = prs.slide_layouts[6] 
-    new_slide = prs.slides.add_slide(blank_layout)
+    # 가장 기본이 되는 첫 번째 레이아웃(0번)을 사용하도록 변경하여 IndexError 방지
+    try:
+        layout = prs.slide_layouts[0] 
+    except IndexError:
+        # 혹시 레이아웃이 하나도 없는 특수 상황을 대비해 마지막 레이아웃이라도 시도
+        layout = prs.slide_layouts[-1]
+        
+    new_slide = prs.slides.add_slide(layout)
+    
     # 기존 도형 복사
     for shape in source_slide.shapes:
         new_el = copy.deepcopy(shape._element)
         new_slide.shapes._spTree.append(new_el)
     return new_slide
-
 # ---------------------------------------------------------
 # 5. 하단 영역 삭제 함수 (홀수 페이지 처리)
 # ---------------------------------------------------------
