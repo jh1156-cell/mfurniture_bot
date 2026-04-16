@@ -25,7 +25,6 @@ def scrape_product_info(url):
         raw_name = title_meta['content'] if title_meta else "상품명 인식 실패"
         clean_name = raw_name.replace(' - (주)엠퍼니처', '').strip()
 
-        # 가구 종류 판별
         category = "ITEM"
         if any(keyword in clean_name for keyword in ['체어', '의자', 'Chair', 'CHAIR']):
             category = "CHAIR"
@@ -50,7 +49,7 @@ def scrape_product_info(url):
         return {"name": "오류 발생", "category": "ITEM", "img_url": None, "size": "연결 실패"}
 
 # ---------------------------------------------------------
-# 2. 위치 기반 텍스트 교체 함수
+# 2. 위치 기반 텍스트 교체 (PRODUCT 번호 꼬임 해결)
 # ---------------------------------------------------------
 def replace_text_by_position(prs, slide, search_text, replace_text, position='all'):
     prs_height = prs.slide_height
@@ -60,16 +59,20 @@ def replace_text_by_position(prs, slide, search_text, replace_text, position='al
         if not shape.has_text_frame: continue
         if "2026" in shape.text: continue
         
+        # [핵심] PRODUCT 번호를 바꿀 때, 위치가 맞지 않으면 건너뜁니다.
         if position == 'top' and shape.top > mid_point: continue
         if position == 'bottom' and shape.top <= mid_point: continue
         
         for paragraph in shape.text_frame.paragraphs:
             for run in paragraph.runs:
-                if search_text in run.text:
+                # search_text가 정확히 일치할 때만 바꿉니다 (예: '01'만 정확히 매칭)
+                if search_text == run.text.strip():
+                    run.text = str(replace_text)
+                elif search_text in run.text:
                     run.text = run.text.replace(search_text, str(replace_text))
 
 # ---------------------------------------------------------
-# 3. 이미지 삽입 및 슬라이드 제어 함수
+# 3. 이미지 및 슬라이드 제어 함수
 # ---------------------------------------------------------
 def replace_image_fit(slide, old_pic_shape, new_img_url):
     if not new_img_url: return
@@ -113,7 +116,7 @@ def delete_bottom_half(prs, slide):
         sp.getparent().remove(sp)
 
 # ---------------------------------------------------------
-# 4. Streamlit UI 및 메인 실행부
+# 4. Streamlit UI
 # ---------------------------------------------------------
 st.set_page_config(page_title="제안서 생성기", layout="wide")
 st.title("🪑 매직퍼니처 제안서 자동 생성 시스템")
@@ -125,9 +128,8 @@ if not os.path.exists(TEMPLATE_FILE):
     st.error(f"GitHub에 '{TEMPLATE_FILE}' 파일이 업로드되어 있어야 합니다.")
 else:
     col1, col2 = st.columns([2, 1])
-    
     with col1:
-        proposal_title = st.text_input("1. 제안서 제목", placeholder="파일명으로 사용됩니다")
+        proposal_title = st.text_input("1. 제안서 제목")
         links_input = st.text_area("2. 가구 링크 (줄바꿈 구분)", height=250)
         links = [l.strip() for l in links_input.split('\n') if l.strip()]
 
@@ -138,10 +140,7 @@ else:
         else:
             for idx, hist in enumerate(st.session_state.history):
                 with st.expander(f"✅ {hist['title']}", expanded=(idx==0)):
-                    all_links_str = "\n".join(hist['links'])
-                    st.caption("우측 상단 버튼을 눌러 복사하세요:")
-                    st.code(all_links_str, language=None)
-                    st.caption(f"가구 개수: {len(hist['links'])}개")
+                    st.code("\n".join(hist['links']), language=None)
 
     if st.button("🚀 제안서 생성하기", use_container_width=True):
         if not proposal_title or not links:
@@ -158,16 +157,18 @@ else:
                     current_slide = duplicate_slide(prs, source_slide)
                     current_page_idx = len(prs.slides)
                     
-                    # 공통: 페이지 번호
+                    # 페이지 번호 (오른쪽 하단)
                     replace_text_by_position(prs, current_slide, "2", str(current_page_idx))
                     
                     # --- 상단 가구 (i) ---
                     item1 = product_data[i]
                     counts[item1['category']] += 1
                     cat_num1 = f"{item1['category']} {counts[item1['category']]:02d}"
+                    
                     replace_text_by_position(prs, current_slide, "CHAIR 01", cat_num1, 'top')
                     replace_text_by_position(prs, current_slide, "FA 루츠 암체어", item1['name'], 'top')
                     replace_text_by_position(prs, current_slide, "W560 × D520 × H750 × SH440 × AH650", item1['size'], 'top')
+                    # PRODUCT 옆 숫자 01 교체
                     replace_text_by_position(prs, current_slide, "01", f"{i + 1:02d}", 'top')
 
                     # --- 하단 가구 (i + 1) ---
@@ -175,10 +176,14 @@ else:
                         item2 = product_data[i+1]
                         counts[item2['category']] += 1
                         cat_num2 = f"{item2['category']} {counts[item2['category']]:02d}"
+                        
+                        # 템플릿의 하단 번호는 '01'이 아니라 '02'여야 할 수도 있으나, 
+                        # 주희님의 템플릿 구조상 상단 하단 모두 '01'로 되어있다면 아래처럼 작동합니다.
                         replace_text_by_position(prs, current_slide, "TABLE 01", cat_num2, 'bottom')
                         replace_text_by_position(prs, current_slide, "M 카라 테이블", item2['name'], 'bottom')
                         replace_text_by_position(prs, current_slide, "W2600 × D900 × H730", item2['size'], 'bottom')
-                        replace_text_by_position(prs, current_slide, "02", f"{i + 2:02d}", 'bottom')
+                        # PRODUCT 옆 숫자 교체 (하단 영역만)
+                        replace_text_by_position(prs, current_slide, "01", f"{i + 2:02d}", 'bottom')
                     else:
                         delete_bottom_half(prs, current_slide)
 
